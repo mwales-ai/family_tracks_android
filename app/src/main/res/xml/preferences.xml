@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory android:title="Location">
+
+        <SwitchPreferenceCompat
+            android:key="fine_location"
+            android:title="Fine Location"
+            android:summary="Use GPS for precise location (uses more battery)"
+            android:defaultValue="true" />
+
+        <ListPreference
+            android:key="reporting_interval"
+            android:title="Reporting Interval"
+            android:summary="How often to send location updates"
+            android:entries="@array/interval_labels"
+            android:entryValues="@array/interval_values"
+            android:defaultValue="60" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Data Sharing">
+
+        <SwitchPreferenceCompat
+            android:key="send_speed"
+            android:title="Share Speed"
+            android:defaultValue="true" />
+
+        <SwitchPreferenceCompat
+            android:key="send_battery"
+            android:title="Share Battery Level"
+            android:defaultValue="true" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Connection">
+
+        <Preference
+            android:key="server_info"
+            android:title="Server Info"
+            android:summary="Scan a new QR code from the main screen to change" />
+
+        <Preference
+            android:key="disconnect"
+            android:title="Disconnect"
+            android:summary="Remove server configuration from this device" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

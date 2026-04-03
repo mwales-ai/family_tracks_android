@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.FamilyTracks" parent="Theme.MaterialComponents.Light.DarkActionBar">
+        <item name="colorPrimary">#2c3e50</item>
+        <item name="colorPrimaryVariant">#1a252f</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#3498db</item>
+        <item name="colorSecondaryVariant">#2980b9</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+    </style>
+</resources>
