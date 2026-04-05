@@ -19,6 +19,7 @@ public class ServerConfig
     private String theHost;
     private int    thePort;
     private int    theWebPort;
+    private String theScheme;
     private byte[] theAesKey;
     private String theUserId;
 
@@ -26,7 +27,8 @@ public class ServerConfig
     {
         theHost = null;
         thePort = 5555;
-        theWebPort = 5000;
+        theWebPort = 443;
+        theScheme = "https";
         theAesKey = null;
         theUserId = null;
     }
@@ -34,13 +36,21 @@ public class ServerConfig
     public String getHost()    { return theHost; }
     public int    getPort()    { return thePort; }
     public int    getWebPort() { return theWebPort; }
+    public String getScheme()  { return theScheme; }
     public byte[] getAesKey()  { return theAesKey; }
     public String getUserId()  { return theUserId; }
 
-    /** Get the base URL for the web server (e.g. http://192.168.1.5:5000) */
+    /** Get the base URL for the web server (e.g. https://tracks.example.com) */
     public String getWebBaseUrl()
     {
-        return "http://" + theHost + ":" + theWebPort;
+        boolean defaultPort = (theScheme.equals("https") && theWebPort == 443)
+                || (theScheme.equals("http") && theWebPort == 80);
+
+        if (defaultPort)
+        {
+            return theScheme + "://" + theHost;
+        }
+        return theScheme + "://" + theHost + ":" + theWebPort;
     }
 
     public boolean isConfigured()
@@ -54,6 +64,8 @@ public class ServerConfig
      * {
      *     "host": "your-server.com",
      *     "port": 5555,
+     *     "web_port": 443,
+     *     "scheme": "https",
      *     "key": "<base64 AES-256 key>",
      *     "user_id": "<uuid>"
      * }
@@ -65,7 +77,8 @@ public class ServerConfig
             JSONObject obj = new JSONObject(jsonStr);
             theHost = obj.getString("host");
             thePort = obj.getInt("port");
-            theWebPort = obj.optInt("web_port", 5000);
+            theWebPort = obj.optInt("web_port", 443);
+            theScheme = obj.optString("scheme", "https");
             theUserId = obj.getString("user_id");
 
             String keyB64 = obj.getString("key");
@@ -79,6 +92,7 @@ public class ServerConfig
             }
 
             Log.i(TAG, "Parsed QR: host=" + theHost + " port=" + thePort
+                    + " webPort=" + theWebPort + " scheme=" + theScheme
                     + " userId=" + theUserId);
             return true;
         }
@@ -96,6 +110,7 @@ public class ServerConfig
         editor.putString("host", theHost);
         editor.putInt("port", thePort);
         editor.putInt("webPort", theWebPort);
+        editor.putString("scheme", theScheme);
         editor.putString("userId", theUserId);
 
         if (theAesKey != null)
@@ -112,7 +127,8 @@ public class ServerConfig
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         theHost = prefs.getString("host", null);
         thePort = prefs.getInt("port", 5555);
-        theWebPort = prefs.getInt("webPort", 5000);
+        theWebPort = prefs.getInt("webPort", 443);
+        theScheme = prefs.getString("scheme", "https");
         theUserId = prefs.getString("userId", null);
 
         String keyB64 = prefs.getString("aesKey", null);
