@@ -56,6 +56,7 @@ public class StatusFragment extends Fragment
     private Button theScanButton;
     private Button theTrackButton;
     private Button theAvatarButton;
+    private Button theDisconnectButton;
 
     private ActivityResultLauncher<Intent> theQrLauncher;
     private ActivityResultLauncher<String[]> theLocationPermLauncher;
@@ -127,6 +128,7 @@ public class StatusFragment extends Fragment
         theScanButton = view.findViewById(R.id.scanButton);
         theTrackButton = view.findViewById(R.id.trackButton);
         theAvatarButton = view.findViewById(R.id.avatarButton);
+        theDisconnectButton = view.findViewById(R.id.disconnectButton);
 
         theScanButton.setOnClickListener(new View.OnClickListener()
         {
@@ -160,6 +162,34 @@ public class StatusFragment extends Fragment
             public void onClick(View v)
             {
                 theImagePickerLauncher.launch("image/*");
+            }
+        });
+
+        theDisconnectButton.setOnClickListener(new View.OnClickListener()
+        {
+            @Override
+            public void onClick(View v)
+            {
+                new AlertDialog.Builder(requireContext())
+                        .setTitle("Disconnect Server")
+                        .setMessage("This will remove the server configuration and stop tracking. "
+                                + "You will need to scan a new QR code to reconnect.")
+                        .setPositiveButton("Disconnect", new DialogInterface.OnClickListener()
+                        {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which)
+                            {
+                                if (theTracking)
+                                {
+                                    stopTracking();
+                                }
+                                theConfig.clear(requireContext());
+                                theAvatarImage.setImageResource(android.R.drawable.ic_menu_gallery);
+                                refreshStatus();
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
             }
         });
 
@@ -205,6 +235,7 @@ public class StatusFragment extends Fragment
                     + " Web:" + theConfig.getWebPort() + ")");
             theTrackButton.setEnabled(true);
             theAvatarButton.setEnabled(true);
+            theDisconnectButton.setVisibility(View.VISIBLE);
 
             if (theTracking)
             {
@@ -223,6 +254,7 @@ public class StatusFragment extends Fragment
             theStatusText.setText("Scan a QR code to connect");
             theTrackButton.setEnabled(false);
             theAvatarButton.setEnabled(false);
+            theDisconnectButton.setVisibility(View.GONE);
             theTrackButton.setText("Start Tracking");
         }
     }

@@ -62,6 +62,15 @@
         android:layout_width="240dp"
         android:layout_height="wrap_content"
         android:text="Change Avatar"
+        android:layout_marginBottom="16dp"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+    <Button
+        android:id="@+id/disconnectButton"
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:text="Disconnect Server"
+        android:textColor="#e74c3c"
         style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
 </LinearLayout>
