@@ -6,16 +6,24 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
+import android.provider.OpenableColumns;
 import android.provider.Settings;
+import android.util.Base64;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -24,24 +32,36 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 /**
- * Status tab showing connection info with buttons to scan QR
- * and start/stop location tracking.
+ * Status tab showing connection info with buttons to scan QR,
+ * start/stop location tracking, and change avatar.
  */
 public class StatusFragment extends Fragment
 {
+    private static final String TAG = "StatusFragment";
+
     private ServerConfig theConfig;
     private boolean theTracking;
 
     private TextView theStatusText;
     private TextView theServerText;
+    private ImageView theAvatarImage;
     private Button theScanButton;
     private Button theTrackButton;
+    private Button theAvatarButton;
 
     private ActivityResultLauncher<Intent> theQrLauncher;
     private ActivityResultLauncher<String[]> theLocationPermLauncher;
     private ActivityResultLauncher<String[]> theBgLocationPermLauncher;
     private ActivityResultLauncher<String> theNotifPermLauncher;
+    private ActivityResultLauncher<String> theImagePickerLauncher;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState)
@@ -63,7 +83,6 @@ public class StatusFragment extends Fragment
                     Boolean fine = grants.get(Manifest.permission.ACCESS_FINE_LOCATION);
                     if (fine != null && fine)
                     {
-                        // Foreground location granted, now ask for background
                         requestBackgroundLocation();
                     }
                     else
@@ -75,17 +94,23 @@ public class StatusFragment extends Fragment
 
         theBgLocationPermLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(),
-                grants ->
-                {
-                    // Whether they granted background or not, proceed with tracking.
-                    // Foreground location is enough, background is a bonus.
-                    requestBatteryOptExemption();
-                }
+                grants -> requestBatteryOptExemption()
         );
 
         theNotifPermLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 granted -> { }
+        );
+
+        theImagePickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.GetContent(),
+                uri ->
+                {
+                    if (uri != null)
+                    {
+                        uploadAvatar(uri);
+                    }
+                }
         );
     }
 
@@ -98,8 +123,10 @@ public class StatusFragment extends Fragment
 
         theStatusText = view.findViewById(R.id.statusText);
         theServerText = view.findViewById(R.id.serverText);
+        theAvatarImage = view.findViewById(R.id.avatarImage);
         theScanButton = view.findViewById(R.id.scanButton);
         theTrackButton = view.findViewById(R.id.trackButton);
+        theAvatarButton = view.findViewById(R.id.avatarButton);
 
         theScanButton.setOnClickListener(new View.OnClickListener()
         {
@@ -127,6 +154,36 @@ public class StatusFragment extends Fragment
             }
         });
 
+        theAvatarButton.setOnClickListener(new View.OnClickListener()
+        {
+            @Override
+            public void onClick(View v)
+            {
+                theImagePickerLauncher.launch("image/*");
+            }
+        });
+
+        // Make avatar image clickable too
+        theAvatarImage.setOnClickListener(new View.OnClickListener()
+        {
+            @Override
+            public void onClick(View v)
+            {
+                theImagePickerLauncher.launch("image/*");
+            }
+        });
+
+        // Round the avatar image
+        theAvatarImage.setClipToOutline(true);
+        theAvatarImage.setOutlineProvider(new android.view.ViewOutlineProvider()
+        {
+            @Override
+            public void getOutline(View view, android.graphics.Outline outline)
+            {
+                outline.setOval(0, 0, view.getWidth(), view.getHeight());
+            }
+        });
+
         return view;
     }
 
@@ -147,6 +204,7 @@ public class StatusFragment extends Fragment
                     + " (UDP:" + theConfig.getPort()
                     + " Web:" + theConfig.getWebPort() + ")");
             theTrackButton.setEnabled(true);
+            theAvatarButton.setEnabled(true);
 
             if (theTracking)
             {
@@ -164,13 +222,13 @@ public class StatusFragment extends Fragment
             theServerText.setText("Not connected to a server");
             theStatusText.setText("Scan a QR code to connect");
             theTrackButton.setEnabled(false);
+            theAvatarButton.setEnabled(false);
             theTrackButton.setText("Start Tracking");
         }
     }
 
     private void startTracking()
     {
-        // Step 1: Check foreground location permission
         if (ContextCompat.checkSelfPermission(requireContext(),
                 Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
         {
@@ -195,7 +253,6 @@ public class StatusFragment extends Fragment
             return;
         }
 
-        // Already have foreground location, check background
         if (ContextCompat.checkSelfPermission(requireContext(),
                 Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED)
         {
@@ -203,14 +260,12 @@ public class StatusFragment extends Fragment
             return;
         }
 
-        // Have all permissions, check battery optimization
         if (!isBatteryOptExempt())
         {
             requestBatteryOptExemption();
             return;
         }
 
-        // Everything is set, start the service
         launchService();
     }
 
@@ -221,7 +276,6 @@ public class StatusFragment extends Fragment
             if (ContextCompat.checkSelfPermission(requireContext(),
                     Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED)
             {
-                // Already have it
                 requestBatteryOptExemption();
                 return;
             }
@@ -284,7 +338,6 @@ public class StatusFragment extends Fragment
                         Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                         intent.setData(Uri.parse("package:" + requireContext().getPackageName()));
                         startActivity(intent);
-                        // Service will start on next button press after they return
                         launchService();
                     }
                 })
@@ -301,7 +354,6 @@ public class StatusFragment extends Fragment
 
     private void launchService()
     {
-        // Request notification permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
         {
             if (ContextCompat.checkSelfPermission(requireContext(),
@@ -327,5 +379,146 @@ public class StatusFragment extends Fragment
 
         theTracking = false;
         refreshStatus();
+    }
+
+    /**
+     * Upload a selected image to the server as the user's avatar.
+     * Authenticates with the token endpoint, then POSTs the image
+     * as a multipart form upload to /settings/avatar.
+     */
+    private void uploadAvatar(Uri imageUri)
+    {
+        theStatusText.setText("Uploading avatar...");
+
+        new Thread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                try
+                {
+                    // Read image bytes from the content URI
+                    InputStream is = requireContext().getContentResolver().openInputStream(imageUri);
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = is.read(buf)) != -1)
+                    {
+                        baos.write(buf, 0, n);
+                    }
+                    is.close();
+                    byte[] imageBytes = baos.toByteArray();
+
+                    // Figure out the filename
+                    String filename = "avatar.jpg";
+                    Cursor cursor = requireContext().getContentResolver().query(
+                            imageUri, null, null, null, null);
+                    if (cursor != null && cursor.moveToFirst())
+                    {
+                        int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                        if (idx >= 0)
+                        {
+                            filename = cursor.getString(idx);
+                        }
+                        cursor.close();
+                    }
+
+                    String baseUrl = theConfig.getWebBaseUrl();
+                    String boundary = "----FamilyTracks" + System.currentTimeMillis();
+
+                    // Step 1: Authenticate
+                    URL authUrl = new URL(baseUrl + "/api/auth/token");
+                    HttpURLConnection authConn = (HttpURLConnection) authUrl.openConnection();
+                    authConn.setRequestMethod("POST");
+                    authConn.setRequestProperty("Content-Type", "application/json");
+                    authConn.setDoOutput(true);
+
+                    String authJson = "{\"user_id\":\"" + theConfig.getUserId()
+                            + "\",\"key\":\"" + Base64.encodeToString(
+                            theConfig.getAesKey(), Base64.NO_WRAP) + "\"}";
+                    authConn.getOutputStream().write(authJson.getBytes());
+
+                    int authCode = authConn.getResponseCode();
+                    if (authCode != 200)
+                    {
+                        showToast("Auth failed");
+                        authConn.disconnect();
+                        return;
+                    }
+
+                    String sessionCookie = authConn.getHeaderField("Set-Cookie");
+                    authConn.disconnect();
+
+                    // Step 2: Upload avatar as multipart/form-data
+                    URL uploadUrl = new URL(baseUrl + "/settings/avatar");
+                    HttpURLConnection conn = (HttpURLConnection) uploadUrl.openConnection();
+                    conn.setRequestMethod("POST");
+                    conn.setRequestProperty("Content-Type",
+                            "multipart/form-data; boundary=" + boundary);
+                    conn.setRequestProperty("Cookie", sessionCookie);
+                    conn.setDoOutput(true);
+                    conn.setInstanceFollowRedirects(false);
+
+                    DataOutputStream dos = new DataOutputStream(conn.getOutputStream());
+
+                    // Write the file part
+                    dos.writeBytes("--" + boundary + "\r\n");
+                    dos.writeBytes("Content-Disposition: form-data; name=\"avatar\"; filename=\""
+                            + filename + "\"\r\n");
+                    dos.writeBytes("Content-Type: image/jpeg\r\n\r\n");
+                    dos.write(imageBytes);
+                    dos.writeBytes("\r\n");
+                    dos.writeBytes("--" + boundary + "--\r\n");
+                    dos.flush();
+                    dos.close();
+
+                    int code = conn.getResponseCode();
+                    conn.disconnect();
+
+                    if (code == 200 || code == 302)
+                    {
+                        // Show the selected image as preview
+                        if (isAdded())
+                        {
+                            Bitmap bmp = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+                            requireActivity().runOnUiThread(new Runnable()
+                            {
+                                @Override
+                                public void run()
+                                {
+                                    theAvatarImage.setImageBitmap(bmp);
+                                    theStatusText.setText("Avatar updated!");
+                                }
+                            });
+                        }
+                        showToast("Avatar uploaded");
+                    }
+                    else
+                    {
+                        Log.e(TAG, "Avatar upload failed: HTTP " + code);
+                        showToast("Upload failed (HTTP " + code + ")");
+                    }
+                }
+                catch (Exception e)
+                {
+                    Log.e(TAG, "Avatar upload error: " + e.getMessage());
+                    showToast("Upload failed: " + e.getMessage());
+                }
+            }
+        }).start();
+    }
+
+    private void showToast(String msg)
+    {
+        if (!isAdded()) return;
+        requireActivity().runOnUiThread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show();
+                refreshStatus();
+            }
+        });
     }
 }

@@ -6,6 +6,17 @@
     android:gravity="center_horizontal"
     android:padding="32dp">
 
+    <ImageView
+        android:id="@+id/avatarImage"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:scaleType="centerCrop"
+        android:src="@android:drawable/ic_menu_gallery"
+        android:background="@android:color/darker_gray"
+        android:layout_marginBottom="8dp"
+        android:clickable="true"
+        android:contentDescription="Avatar" />
+
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -43,6 +54,14 @@
         android:layout_width="240dp"
         android:layout_height="wrap_content"
         android:text="Start Tracking"
-        android:enabled="false" />
+        android:enabled="false"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/avatarButton"
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:text="Change Avatar"
+        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
 
 </LinearLayout>
