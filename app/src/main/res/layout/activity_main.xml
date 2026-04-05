@@ -1,56 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center_horizontal"
-    android:padding="32dp">
+    android:orientation="vertical">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Family Tracks"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
+    <FrameLayout
+        android:id="@+id/fragmentContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
 
-    <TextView
-        android:id="@+id/serverText"
-        android:layout_width="wrap_content"
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNav"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Not connected to a server"
-        android:textSize="14sp"
-        android:textColor="#666666"
-        android:layout_marginBottom="4dp" />
-
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Scan a QR code to connect"
-        android:textSize="16sp"
-        android:layout_marginBottom="48dp" />
-
-    <Button
-        android:id="@+id/scanButton"
-        android:layout_width="240dp"
-        android:layout_height="wrap_content"
-        android:text="Scan QR Code"
-        android:layout_marginBottom="16dp" />
-
-    <Button
-        android:id="@+id/trackButton"
-        android:layout_width="240dp"
-        android:layout_height="wrap_content"
-        android:text="Start Tracking"
-        android:enabled="false"
-        android:layout_marginBottom="16dp" />
-
-    <Button
-        android:id="@+id/settingsButton"
-        android:layout_width="240dp"
-        android:layout_height="wrap_content"
-        android:text="Settings"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+        android:background="@android:color/white"
+        app:menu="@menu/bottom_nav" />
 
 </LinearLayout>

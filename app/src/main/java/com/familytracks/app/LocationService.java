@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.location.Location;
 import android.os.BatteryManager;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
@@ -23,21 +24,30 @@ import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
 /**
  * Foreground service that collects GPS locations and sends them
- * to the server as encrypted UDP packets.
+ * to the server as encrypted UDP packets. Also syncs geofence
+ * data from the server once per hour.
  */
 public class LocationService extends Service
 {
     private static final String TAG = "LocationService";
     private static final String CHANNEL_ID = "family_tracks_location";
     private static final int NOTIFICATION_ID = 1;
+    private static final long SYNC_INTERVAL_MS = 60 * 60 * 1000;  // 1 hour
 
     public static final String ACTION_START = "com.familytracks.app.START";
     public static final String ACTION_STOP = "com.familytracks.app.STOP";
@@ -47,6 +57,8 @@ public class LocationService extends Service
     private PacketSender theSender;
     private ServerConfig theConfig;
     private SimpleDateFormat theDateFormat;
+    private Handler theSyncHandler;
+    private Runnable theSyncRunnable;
 
     @Override
     public void onCreate()
@@ -73,6 +85,18 @@ public class LocationService extends Service
             }
         };
 
+        // Periodic sync handler
+        theSyncHandler = new Handler(Looper.getMainLooper());
+        theSyncRunnable = new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                syncWithServer();
+                theSyncHandler.postDelayed(theSyncRunnable, SYNC_INTERVAL_MS);
+            }
+        };
+
         createNotificationChannel();
     }
 
@@ -83,6 +107,7 @@ public class LocationService extends Service
         {
             Log.i(TAG, "Stopping location service");
             stopLocationUpdates();
+            theSyncHandler.removeCallbacks(theSyncRunnable);
             stopForeground(STOP_FOREGROUND_REMOVE);
             stopSelf();
             return START_NOT_STICKY;
@@ -91,6 +116,10 @@ public class LocationService extends Service
         Log.i(TAG, "Starting location service");
         startForeground(NOTIFICATION_ID, buildNotification());
         startLocationUpdates();
+
+        // Start periodic sync — first sync immediately, then every hour
+        theSyncHandler.post(theSyncRunnable);
+
         return START_STICKY;
     }
 
@@ -104,6 +133,7 @@ public class LocationService extends Service
     public void onDestroy()
     {
         stopLocationUpdates();
+        theSyncHandler.removeCallbacks(theSyncRunnable);
         super.onDestroy();
     }
 
@@ -175,7 +205,6 @@ public class LocationService extends Service
                 payload.put("acc", loc.getAccuracy());
             }
 
-            // Battery level
             if (prefs.getBoolean("send_battery", true))
             {
                 BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
@@ -186,7 +215,6 @@ public class LocationService extends Service
                 }
             }
 
-            // Send on a background thread
             new Thread(new Runnable()
             {
                 @Override
@@ -200,6 +228,97 @@ public class LocationService extends Service
         {
             Log.e(TAG, "Error building payload: " + e.getMessage());
         }
+    }
+
+    /**
+     * Sync geofence data from the server. Authenticates with the token
+     * endpoint then fetches all geofences. Stores them in SharedPreferences
+     * as JSON so they survive offline periods.
+     */
+    private void syncWithServer()
+    {
+        new Thread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                try
+                {
+                    String baseUrl = theConfig.getWebBaseUrl();
+
+                    // Authenticate
+                    URL authUrl = new URL(baseUrl + "/api/auth/token");
+                    HttpURLConnection authConn = (HttpURLConnection) authUrl.openConnection();
+                    authConn.setRequestMethod("POST");
+                    authConn.setRequestProperty("Content-Type", "application/json");
+                    authConn.setDoOutput(true);
+
+                    JSONObject authBody = new JSONObject();
+                    authBody.put("user_id", theConfig.getUserId());
+                    authBody.put("key", android.util.Base64.encodeToString(
+                            theConfig.getAesKey(), android.util.Base64.NO_WRAP));
+
+                    OutputStream out = authConn.getOutputStream();
+                    out.write(authBody.toString().getBytes(StandardCharsets.UTF_8));
+                    out.close();
+
+                    int authCode = authConn.getResponseCode();
+                    if (authCode != 200)
+                    {
+                        Log.w(TAG, "Sync auth failed: HTTP " + authCode);
+                        authConn.disconnect();
+                        return;
+                    }
+
+                    // Get session cookie
+                    String sessionCookie = authConn.getHeaderField("Set-Cookie");
+                    authConn.disconnect();
+
+                    // Fetch all geofences
+                    URL fenceUrl = new URL(baseUrl + "/api/geofences/all");
+                    HttpURLConnection fenceConn = (HttpURLConnection) fenceUrl.openConnection();
+                    if (sessionCookie != null)
+                    {
+                        fenceConn.setRequestProperty("Cookie", sessionCookie);
+                    }
+
+                    int fenceCode = fenceConn.getResponseCode();
+                    if (fenceCode == 200)
+                    {
+                        BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(fenceConn.getInputStream()));
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null)
+                        {
+                            sb.append(line);
+                        }
+                        reader.close();
+
+                        // Store locally
+                        SharedPreferences prefs = getSharedPreferences(
+                                "family_tracks_sync", MODE_PRIVATE);
+                        prefs.edit()
+                                .putString("geofences", sb.toString())
+                                .putLong("lastSync", System.currentTimeMillis())
+                                .apply();
+
+                        JSONArray fences = new JSONArray(sb.toString());
+                        Log.i(TAG, "Synced " + fences.length() + " geofences from server");
+                    }
+                    else
+                    {
+                        Log.w(TAG, "Geofence fetch failed: HTTP " + fenceCode);
+                    }
+
+                    fenceConn.disconnect();
+                }
+                catch (Exception e)
+                {
+                    Log.w(TAG, "Sync failed: " + e.getMessage());
+                }
+            }
+        }).start();
     }
 
     private void createNotificationChannel()

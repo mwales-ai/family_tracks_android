@@ -1,39 +1,24 @@
 package com.familytracks.app;
 
-import android.Manifest;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.os.Build;
 import android.os.Bundle;
-import android.view.View;
-import android.widget.Button;
-import android.widget.TextView;
+import android.view.MenuItem;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
+import androidx.fragment.app.Fragment;
+
+import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
- * Main screen showing connection status with buttons to
- * scan QR, start/stop tracking, and open settings.
+ * Main activity with bottom tab navigation: Map, Events, Status, Settings.
  */
 public class MainActivity extends AppCompatActivity
 {
-    private static final int REQUEST_LOCATION = 200;
-
-    private ServerConfig theConfig;
-    private boolean theTracking;
-
-    private TextView theStatusText;
-    private TextView theServerText;
-    private Button theScanButton;
-    private Button theTrackButton;
-    private Button theSettingsButton;
-
-    private ActivityResultLauncher<Intent> theQrLauncher;
+    private MapViewFragment theMapFragment;
+    private EventsFragment theEventsFragment;
+    private StatusFragment theStatusFragment;
+    private SettingsFragment theSettingsFragment;
+    private Fragment theActiveFragment;
 
     @Override
     protected void onCreate(Bundle savedInstanceState)
@@ -41,152 +26,57 @@ public class MainActivity extends AppCompatActivity
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        theConfig = new ServerConfig();
-        theTracking = false;
+        theMapFragment = new MapViewFragment();
+        theEventsFragment = new EventsFragment();
+        theStatusFragment = new StatusFragment();
+        theSettingsFragment = new SettingsFragment();
 
-        theStatusText = findViewById(R.id.statusText);
-        theServerText = findViewById(R.id.serverText);
-        theScanButton = findViewById(R.id.scanButton);
-        theTrackButton = findViewById(R.id.trackButton);
-        theSettingsButton = findViewById(R.id.settingsButton);
+        getSupportFragmentManager().beginTransaction()
+                .add(R.id.fragmentContainer, theSettingsFragment, "settings").hide(theSettingsFragment)
+                .add(R.id.fragmentContainer, theStatusFragment, "status").hide(theStatusFragment)
+                .add(R.id.fragmentContainer, theEventsFragment, "events").hide(theEventsFragment)
+                .add(R.id.fragmentContainer, theMapFragment, "map")
+                .commit();
 
-        theQrLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result ->
-                {
-                    // Reload config after QR scan
-                    refreshStatus();
-                }
-        );
+        theActiveFragment = theMapFragment;
 
-        theScanButton.setOnClickListener(new View.OnClickListener()
+        BottomNavigationView nav = findViewById(R.id.bottomNav);
+        nav.setOnItemSelectedListener(new BottomNavigationView.OnItemSelectedListener()
         {
             @Override
-            public void onClick(View v)
+            public boolean onNavigationItemSelected(@NonNull MenuItem item)
             {
-                Intent intent = new Intent(MainActivity.this, QrScanActivity.class);
-                theQrLauncher.launch(intent);
-            }
-        });
+                Fragment selected = null;
+                int id = item.getItemId();
 
-        theTrackButton.setOnClickListener(new View.OnClickListener()
-        {
-            @Override
-            public void onClick(View v)
-            {
-                if (theTracking)
+                if (id == R.id.nav_map)
                 {
-                    stopTracking();
+                    selected = theMapFragment;
                 }
-                else
+                else if (id == R.id.nav_events)
                 {
-                    startTracking();
+                    selected = theEventsFragment;
                 }
+                else if (id == R.id.nav_status)
+                {
+                    selected = theStatusFragment;
+                }
+                else if (id == R.id.nav_settings)
+                {
+                    selected = theSettingsFragment;
+                }
+
+                if (selected != null && selected != theActiveFragment)
+                {
+                    getSupportFragmentManager().beginTransaction()
+                            .hide(theActiveFragment)
+                            .show(selected)
+                            .commit();
+                    theActiveFragment = selected;
+                }
+
+                return true;
             }
         });
-
-        theSettingsButton.setOnClickListener(new View.OnClickListener()
-        {
-            @Override
-            public void onClick(View v)
-            {
-                startActivity(new Intent(MainActivity.this, SettingsActivity.class));
-            }
-        });
-    }
-
-    @Override
-    protected void onResume()
-    {
-        super.onResume();
-        refreshStatus();
-    }
-
-    private void refreshStatus()
-    {
-        boolean configured = theConfig.load(this);
-
-        if (configured)
-        {
-            theServerText.setText("Server: " + theConfig.getHost()
-                    + ":" + theConfig.getPort());
-            theTrackButton.setEnabled(true);
-
-            if (theTracking)
-            {
-                theStatusText.setText("Tracking active");
-                theTrackButton.setText("Stop Tracking");
-            }
-            else
-            {
-                theStatusText.setText("Ready");
-                theTrackButton.setText("Start Tracking");
-            }
-        }
-        else
-        {
-            theServerText.setText("Not connected to a server");
-            theStatusText.setText("Scan a QR code to connect");
-            theTrackButton.setEnabled(false);
-            theTrackButton.setText("Start Tracking");
-        }
-    }
-
-    private void startTracking()
-    {
-        // Check location permissions
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED)
-        {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                    }, REQUEST_LOCATION);
-            return;
-        }
-
-        // Request notification permission on Android 13+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-        {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED)
-            {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.POST_NOTIFICATIONS}, 300);
-            }
-        }
-
-        Intent intent = new Intent(this, LocationService.class);
-        intent.setAction(LocationService.ACTION_START);
-        ContextCompat.startForegroundService(this, intent);
-
-        theTracking = true;
-        refreshStatus();
-    }
-
-    private void stopTracking()
-    {
-        Intent intent = new Intent(this, LocationService.class);
-        intent.setAction(LocationService.ACTION_STOP);
-        startService(intent);
-
-        theTracking = false;
-        refreshStatus();
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults)
-    {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        if (requestCode == REQUEST_LOCATION)
-        {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
-            {
-                startTracking();
-            }
-        }
     }
 }

@@ -18,6 +18,7 @@ public class ServerConfig
 
     private String theHost;
     private int    thePort;
+    private int    theWebPort;
     private byte[] theAesKey;
     private String theUserId;
 
@@ -25,14 +26,22 @@ public class ServerConfig
     {
         theHost = null;
         thePort = 5555;
+        theWebPort = 5000;
         theAesKey = null;
         theUserId = null;
     }
 
-    public String getHost()   { return theHost; }
-    public int    getPort()   { return thePort; }
-    public byte[] getAesKey() { return theAesKey; }
-    public String getUserId() { return theUserId; }
+    public String getHost()    { return theHost; }
+    public int    getPort()    { return thePort; }
+    public int    getWebPort() { return theWebPort; }
+    public byte[] getAesKey()  { return theAesKey; }
+    public String getUserId()  { return theUserId; }
+
+    /** Get the base URL for the web server (e.g. http://192.168.1.5:5000) */
+    public String getWebBaseUrl()
+    {
+        return "http://" + theHost + ":" + theWebPort;
+    }
 
     public boolean isConfigured()
     {
@@ -56,6 +65,7 @@ public class ServerConfig
             JSONObject obj = new JSONObject(jsonStr);
             theHost = obj.getString("host");
             thePort = obj.getInt("port");
+            theWebPort = obj.optInt("web_port", 5000);
             theUserId = obj.getString("user_id");
 
             String keyB64 = obj.getString("key");
@@ -85,6 +95,7 @@ public class ServerConfig
         SharedPreferences.Editor editor = prefs.edit();
         editor.putString("host", theHost);
         editor.putInt("port", thePort);
+        editor.putInt("webPort", theWebPort);
         editor.putString("userId", theUserId);
 
         if (theAesKey != null)
@@ -101,6 +112,7 @@ public class ServerConfig
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         theHost = prefs.getString("host", null);
         thePort = prefs.getInt("port", 5555);
+        theWebPort = prefs.getInt("webPort", 5000);
         theUserId = prefs.getString("userId", null);
 
         String keyB64 = prefs.getString("aesKey", null);
