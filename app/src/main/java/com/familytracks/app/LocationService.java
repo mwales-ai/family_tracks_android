@@ -40,7 +40,8 @@ import java.util.Locale;
 /**
  * Foreground service that collects GPS locations and sends them
  * to the server as encrypted UDP packets. Also syncs geofence
- * data from the server once per hour.
+ * data from the server once per hour and does smart mode switching
+ * (fine -> coarse when sitting inside a geofence).
  */
 public class LocationService extends Service
 {
@@ -48,9 +49,13 @@ public class LocationService extends Service
     private static final String CHANNEL_ID = "family_tracks_location";
     private static final int NOTIFICATION_ID = 1;
     private static final long SYNC_INTERVAL_MS = 60 * 60 * 1000;  // 1 hour
+    private static final long COARSE_SWITCH_MS = 30 * 60 * 1000;  // 30 minutes
 
     public static final String ACTION_START = "com.familytracks.app.START";
     public static final String ACTION_STOP = "com.familytracks.app.STOP";
+
+    // SharedPreferences key for tracking state (read by StatusFragment)
+    public static final String PREFS_TRACKING = "family_tracks_tracking";
 
     private FusedLocationProviderClient theLocationClient;
     private LocationCallback theLocationCallback;
@@ -59,6 +64,11 @@ public class LocationService extends Service
     private SimpleDateFormat theDateFormat;
     private Handler theSyncHandler;
     private Runnable theSyncRunnable;
+
+    // Smart mode tracking
+    private String theCurrentGeofenceName;
+    private long theGeofenceEnteredAt;
+    private boolean theCoarseMode;
 
     @Override
     public void onCreate()
@@ -69,6 +79,10 @@ public class LocationService extends Service
         theConfig.load(this);
         theSender = new PacketSender(theConfig);
         theDateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US);
+
+        theCurrentGeofenceName = null;
+        theGeofenceEnteredAt = 0;
+        theCoarseMode = false;
 
         theLocationClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -85,7 +99,6 @@ public class LocationService extends Service
             }
         };
 
-        // Periodic sync handler
         theSyncHandler = new Handler(Looper.getMainLooper());
         theSyncRunnable = new Runnable()
         {
@@ -109,15 +122,16 @@ public class LocationService extends Service
             stopLocationUpdates();
             theSyncHandler.removeCallbacks(theSyncRunnable);
             stopForeground(STOP_FOREGROUND_REMOVE);
+            writeTrackingState(false, false, null, 0);
             stopSelf();
             return START_NOT_STICKY;
         }
 
         Log.i(TAG, "Starting location service");
         startForeground(NOTIFICATION_ID, buildNotification());
-        startLocationUpdates();
+        startLocationUpdates(false);
+        writeTrackingState(true, false, null, 0);
 
-        // Start periodic sync — first sync immediately, then every hour
         theSyncHandler.post(theSyncRunnable);
 
         return START_STICKY;
@@ -134,17 +148,29 @@ public class LocationService extends Service
     {
         stopLocationUpdates();
         theSyncHandler.removeCallbacks(theSyncRunnable);
+        writeTrackingState(false, false, null, 0);
         super.onDestroy();
     }
 
-    private void startLocationUpdates()
+    private void startLocationUpdates(boolean forceCoarse)
     {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         String intervalStr = prefs.getString("reporting_interval", "60");
         long intervalMs = Long.parseLong(intervalStr) * 1000;
 
-        boolean fineLoc = prefs.getBoolean("fine_location", true);
-        int priority = fineLoc ? Priority.PRIORITY_HIGH_ACCURACY : Priority.PRIORITY_BALANCED_POWER_ACCURACY;
+        boolean userWantsFine = prefs.getBoolean("fine_location", true);
+        boolean useFine = userWantsFine && !forceCoarse;
+
+        int priority = useFine ? Priority.PRIORITY_HIGH_ACCURACY : Priority.PRIORITY_BALANCED_POWER_ACCURACY;
+
+        // When in coarse mode, also slow down the reporting interval
+        if (forceCoarse)
+        {
+            intervalMs = Math.max(intervalMs, 5 * 60 * 1000);  // at least 5 minutes
+        }
+
+        // Stop existing updates before requesting new ones
+        stopLocationUpdates();
 
         LocationRequest request = new LocationRequest.Builder(priority, intervalMs)
                 .setMinUpdateIntervalMillis(intervalMs / 2)
@@ -154,8 +180,9 @@ public class LocationService extends Service
         {
             theLocationClient.requestLocationUpdates(request, theLocationCallback,
                     Looper.getMainLooper());
-            Log.i(TAG, "Location updates started, interval=" + intervalMs + "ms"
-                    + " priority=" + (fineLoc ? "HIGH" : "BALANCED"));
+            Log.i(TAG, "Location updates: interval=" + intervalMs + "ms"
+                    + " mode=" + (useFine ? "FINE" : "COARSE")
+                    + (forceCoarse ? " (geofence auto-switch)" : ""));
         }
         catch (SecurityException e)
         {
@@ -176,6 +203,13 @@ public class LocationService extends Service
         Log.d(TAG, "Location: " + loc.getLatitude() + ", " + loc.getLongitude());
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        boolean userWantsFine = prefs.getBoolean("fine_location", true);
+
+        // Check geofences for smart mode switching
+        if (userWantsFine)
+        {
+            checkSmartMode(loc);
+        }
 
         try
         {
@@ -231,9 +265,106 @@ public class LocationService extends Service
     }
 
     /**
-     * Sync geofence data from the server. Authenticates with the token
-     * endpoint then fetches all geofences. Stores them in SharedPreferences
-     * as JSON so they survive offline periods.
+     * Check if we're inside a geofence and switch to coarse mode
+     * after 30 minutes. Switch back to fine when we leave.
+     */
+    private void checkSmartMode(Location loc)
+    {
+        SharedPreferences syncPrefs = getSharedPreferences("family_tracks_sync", MODE_PRIVATE);
+        String geofencesJson = syncPrefs.getString("geofences", "[]");
+
+        try
+        {
+            JSONArray fences = new JSONArray(geofencesJson);
+            String insideName = null;
+
+            for (int i = 0; i < fences.length(); i++)
+            {
+                JSONObject f = fences.getJSONObject(i);
+                double fLat = f.getDouble("latitude");
+                double fLon = f.getDouble("longitude");
+                double fRadius = f.getDouble("radiusMeters");
+
+                float[] results = new float[1];
+                Location.distanceBetween(loc.getLatitude(), loc.getLongitude(),
+                        fLat, fLon, results);
+
+                if (results[0] <= fRadius)
+                {
+                    insideName = f.getString("name");
+                    break;
+                }
+            }
+
+            if (insideName != null)
+            {
+                // Inside a geofence
+                if (theCurrentGeofenceName == null
+                        || !theCurrentGeofenceName.equals(insideName))
+                {
+                    // Just entered a new geofence
+                    theCurrentGeofenceName = insideName;
+                    theGeofenceEnteredAt = System.currentTimeMillis();
+                    Log.i(TAG, "Entered geofence: " + insideName);
+                }
+
+                long insideMs = System.currentTimeMillis() - theGeofenceEnteredAt;
+
+                if (!theCoarseMode && insideMs >= COARSE_SWITCH_MS)
+                {
+                    // Switch to coarse
+                    theCoarseMode = true;
+                    startLocationUpdates(true);
+                    Log.i(TAG, "Switching to coarse mode — in " + insideName
+                            + " for " + (insideMs / 60000) + " min");
+                }
+
+                writeTrackingState(true, theCoarseMode, theCurrentGeofenceName,
+                        theGeofenceEnteredAt);
+            }
+            else
+            {
+                // Outside all geofences
+                if (theCurrentGeofenceName != null)
+                {
+                    Log.i(TAG, "Left geofence: " + theCurrentGeofenceName);
+                    theCurrentGeofenceName = null;
+                    theGeofenceEnteredAt = 0;
+
+                    if (theCoarseMode)
+                    {
+                        theCoarseMode = false;
+                        startLocationUpdates(false);
+                        Log.i(TAG, "Switching back to fine mode");
+                    }
+                }
+
+                writeTrackingState(true, false, null, 0);
+            }
+        }
+        catch (Exception e)
+        {
+            Log.w(TAG, "Error checking geofences: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Write tracking state to SharedPreferences so StatusFragment can display it.
+     */
+    private void writeTrackingState(boolean tracking, boolean coarseMode,
+                                     String geofenceName, long enteredAt)
+    {
+        SharedPreferences prefs = getSharedPreferences(PREFS_TRACKING, MODE_PRIVATE);
+        prefs.edit()
+                .putBoolean("tracking", tracking)
+                .putBoolean("coarseMode", coarseMode)
+                .putString("geofenceName", geofenceName)
+                .putLong("geofenceEnteredAt", enteredAt)
+                .apply();
+    }
+
+    /**
+     * Sync geofence data from the server.
      */
     private void syncWithServer()
     {
@@ -246,7 +377,6 @@ public class LocationService extends Service
                 {
                     String baseUrl = theConfig.getWebBaseUrl();
 
-                    // Authenticate
                     URL authUrl = new URL(baseUrl + "/api/auth/token");
                     HttpURLConnection authConn = (HttpURLConnection) authUrl.openConnection();
                     authConn.setRequestMethod("POST");
@@ -270,11 +400,9 @@ public class LocationService extends Service
                         return;
                     }
 
-                    // Get session cookie
                     String sessionCookie = authConn.getHeaderField("Set-Cookie");
                     authConn.disconnect();
 
-                    // Fetch all geofences
                     URL fenceUrl = new URL(baseUrl + "/api/geofences/all");
                     HttpURLConnection fenceConn = (HttpURLConnection) fenceUrl.openConnection();
                     if (sessionCookie != null)
@@ -295,7 +423,6 @@ public class LocationService extends Service
                         }
                         reader.close();
 
-                        // Store locally
                         SharedPreferences prefs = getSharedPreferences(
                                 "family_tracks_sync", MODE_PRIVATE);
                         prefs.edit()

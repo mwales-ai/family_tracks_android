@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
@@ -35,13 +36,12 @@ import androidx.fragment.app.Fragment;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * Status tab showing connection info with buttons to scan QR,
- * start/stop location tracking, and change avatar.
+ * Status tab showing connection info, tracking mode,
+ * and buttons for QR scan, start/stop tracking, and avatar.
  */
 public class StatusFragment extends Fragment
 {
@@ -52,11 +52,11 @@ public class StatusFragment extends Fragment
 
     private TextView theStatusText;
     private TextView theServerText;
+    private TextView theTrackingModeText;
     private ImageView theAvatarImage;
     private Button theScanButton;
     private Button theTrackButton;
     private Button theAvatarButton;
-    private Button theDisconnectButton;
 
     private ActivityResultLauncher<Intent> theQrLauncher;
     private ActivityResultLauncher<String[]> theLocationPermLauncher;
@@ -124,11 +124,11 @@ public class StatusFragment extends Fragment
 
         theStatusText = view.findViewById(R.id.statusText);
         theServerText = view.findViewById(R.id.serverText);
+        theTrackingModeText = view.findViewById(R.id.trackingModeText);
         theAvatarImage = view.findViewById(R.id.avatarImage);
         theScanButton = view.findViewById(R.id.scanButton);
         theTrackButton = view.findViewById(R.id.trackButton);
         theAvatarButton = view.findViewById(R.id.avatarButton);
-        theDisconnectButton = view.findViewById(R.id.disconnectButton);
 
         theScanButton.setOnClickListener(new View.OnClickListener()
         {
@@ -165,35 +165,6 @@ public class StatusFragment extends Fragment
             }
         });
 
-        theDisconnectButton.setOnClickListener(new View.OnClickListener()
-        {
-            @Override
-            public void onClick(View v)
-            {
-                new AlertDialog.Builder(requireContext())
-                        .setTitle("Disconnect Server")
-                        .setMessage("This will remove the server configuration and stop tracking. "
-                                + "You will need to scan a new QR code to reconnect.")
-                        .setPositiveButton("Disconnect", new DialogInterface.OnClickListener()
-                        {
-                            @Override
-                            public void onClick(DialogInterface dialog, int which)
-                            {
-                                if (theTracking)
-                                {
-                                    stopTracking();
-                                }
-                                theConfig.clear(requireContext());
-                                theAvatarImage.setImageResource(android.R.drawable.ic_menu_gallery);
-                                refreshStatus();
-                            }
-                        })
-                        .setNegativeButton("Cancel", null)
-                        .show();
-            }
-        });
-
-        // Make avatar image clickable too
         theAvatarImage.setOnClickListener(new View.OnClickListener()
         {
             @Override
@@ -203,7 +174,6 @@ public class StatusFragment extends Fragment
             }
         });
 
-        // Round the avatar image
         theAvatarImage.setClipToOutline(true);
         theAvatarImage.setOutlineProvider(new android.view.ViewOutlineProvider()
         {
@@ -228,6 +198,11 @@ public class StatusFragment extends Fragment
     {
         boolean configured = theConfig.load(requireContext());
 
+        // Read tracking state from LocationService
+        SharedPreferences trackPrefs = requireContext().getSharedPreferences(
+                LocationService.PREFS_TRACKING, Context.MODE_PRIVATE);
+        theTracking = trackPrefs.getBoolean("tracking", false);
+
         if (configured)
         {
             theServerText.setText("Server: " + theConfig.getHost()
@@ -235,17 +210,18 @@ public class StatusFragment extends Fragment
                     + " Web:" + theConfig.getWebPort() + ")");
             theTrackButton.setEnabled(true);
             theAvatarButton.setEnabled(true);
-            theDisconnectButton.setVisibility(View.VISIBLE);
 
             if (theTracking)
             {
                 theStatusText.setText("Tracking active");
                 theTrackButton.setText("Stop Tracking");
+                updateTrackingMode(trackPrefs);
             }
             else
             {
                 theStatusText.setText("Ready");
                 theTrackButton.setText("Start Tracking");
+                theTrackingModeText.setVisibility(View.GONE);
             }
         }
         else
@@ -254,8 +230,54 @@ public class StatusFragment extends Fragment
             theStatusText.setText("Scan a QR code to connect");
             theTrackButton.setEnabled(false);
             theAvatarButton.setEnabled(false);
-            theDisconnectButton.setVisibility(View.GONE);
             theTrackButton.setText("Start Tracking");
+            theTrackingModeText.setVisibility(View.GONE);
+        }
+    }
+
+    private void updateTrackingMode(SharedPreferences trackPrefs)
+    {
+        boolean coarseMode = trackPrefs.getBoolean("coarseMode", false);
+        String geofenceName = trackPrefs.getString("geofenceName", null);
+        long enteredAt = trackPrefs.getLong("geofenceEnteredAt", 0);
+
+        theTrackingModeText.setVisibility(View.VISIBLE);
+
+        if (coarseMode && geofenceName != null && enteredAt > 0)
+        {
+            long insideMin = (System.currentTimeMillis() - enteredAt) / 60000;
+            String duration;
+            if (insideMin < 60)
+            {
+                duration = insideMin + " minutes";
+            }
+            else
+            {
+                long hours = insideMin / 60;
+                long mins = insideMin % 60;
+                if (mins == 0)
+                {
+                    duration = hours + (hours == 1 ? " hour" : " hours");
+                }
+                else
+                {
+                    duration = hours + "h " + mins + "m";
+                }
+            }
+
+            theTrackingModeText.setText("Tracking coarse \u2014 you have been in "
+                    + geofenceName + " for " + duration);
+            theTrackingModeText.setTextColor(0xFF999999);
+        }
+        else if (geofenceName != null)
+        {
+            theTrackingModeText.setText("Tracking fine \u2014 inside " + geofenceName);
+            theTrackingModeText.setTextColor(0xFF27ae60);
+        }
+        else
+        {
+            theTrackingModeText.setText("Tracking fine");
+            theTrackingModeText.setTextColor(0xFF27ae60);
         }
     }
 
@@ -268,7 +290,7 @@ public class StatusFragment extends Fragment
                     .setTitle("Location Permission Needed")
                     .setMessage("Family Tracks needs location access to share your position "
                             + "with your family. Your location is sent encrypted directly to "
-                            + "your private server — no third parties involved.")
+                            + "your private server \u2014 no third parties involved.")
                     .setPositiveButton("Grant", new DialogInterface.OnClickListener()
                     {
                         @Override
@@ -415,8 +437,6 @@ public class StatusFragment extends Fragment
 
     /**
      * Upload a selected image to the server as the user's avatar.
-     * Authenticates with the token endpoint, then POSTs the image
-     * as a multipart form upload to /settings/avatar.
      */
     private void uploadAvatar(Uri imageUri)
     {
@@ -429,7 +449,6 @@ public class StatusFragment extends Fragment
             {
                 try
                 {
-                    // Read image bytes from the content URI
                     InputStream is = requireContext().getContentResolver().openInputStream(imageUri);
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     byte[] buf = new byte[4096];
@@ -441,7 +460,6 @@ public class StatusFragment extends Fragment
                     is.close();
                     byte[] imageBytes = baos.toByteArray();
 
-                    // Figure out the filename
                     String filename = "avatar.jpg";
                     Cursor cursor = requireContext().getContentResolver().query(
                             imageUri, null, null, null, null);
@@ -458,7 +476,7 @@ public class StatusFragment extends Fragment
                     String baseUrl = theConfig.getWebBaseUrl();
                     String boundary = "----FamilyTracks" + System.currentTimeMillis();
 
-                    // Step 1: Authenticate
+                    // Authenticate
                     URL authUrl = new URL(baseUrl + "/api/auth/token");
                     HttpURLConnection authConn = (HttpURLConnection) authUrl.openConnection();
                     authConn.setRequestMethod("POST");
@@ -481,7 +499,7 @@ public class StatusFragment extends Fragment
                     String sessionCookie = authConn.getHeaderField("Set-Cookie");
                     authConn.disconnect();
 
-                    // Step 2: Upload avatar as multipart/form-data
+                    // Upload
                     URL uploadUrl = new URL(baseUrl + "/settings/avatar");
                     HttpURLConnection conn = (HttpURLConnection) uploadUrl.openConnection();
                     conn.setRequestMethod("POST");
@@ -492,8 +510,6 @@ public class StatusFragment extends Fragment
                     conn.setInstanceFollowRedirects(false);
 
                     DataOutputStream dos = new DataOutputStream(conn.getOutputStream());
-
-                    // Write the file part
                     dos.writeBytes("--" + boundary + "\r\n");
                     dos.writeBytes("Content-Disposition: form-data; name=\"avatar\"; filename=\""
                             + filename + "\"\r\n");
@@ -509,7 +525,6 @@ public class StatusFragment extends Fragment
 
                     if (code == 200 || code == 302)
                     {
-                        // Show the selected image as preview
                         if (isAdded())
                         {
                             Bitmap bmp = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
