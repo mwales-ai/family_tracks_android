@@ -35,9 +35,12 @@ import androidx.fragment.app.Fragment;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+
+import android.graphics.Matrix;
 
 /**
  * Status tab showing connection info, tracking mode,
@@ -62,7 +65,8 @@ public class StatusFragment extends Fragment
     private ActivityResultLauncher<String[]> theLocationPermLauncher;
     private ActivityResultLauncher<String[]> theBgLocationPermLauncher;
     private ActivityResultLauncher<String> theNotifPermLauncher;
-    private ActivityResultLauncher<String> theImagePickerLauncher;
+    private ActivityResultLauncher<Intent> theAvatarLauncher;
+    private Uri theCameraUri;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState)
@@ -103,13 +107,26 @@ public class StatusFragment extends Fragment
                 granted -> { }
         );
 
-        theImagePickerLauncher = registerForActivityResult(
-                new ActivityResultContracts.GetContent(),
-                uri ->
+        theAvatarLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result ->
                 {
-                    if (uri != null)
+                    if (result.getResultCode() == android.app.Activity.RESULT_OK)
                     {
-                        uploadAvatar(uri);
+                        Uri uri = null;
+                        if (result.getData() != null && result.getData().getData() != null)
+                        {
+                            uri = result.getData().getData();
+                        }
+                        else
+                        {
+                            // Camera result — use the URI we created
+                            uri = theCameraUri;
+                        }
+                        if (uri != null)
+                        {
+                            uploadAvatar(uri);
+                        }
                     }
                 }
         );
@@ -156,23 +173,16 @@ public class StatusFragment extends Fragment
             }
         });
 
-        theAvatarButton.setOnClickListener(new View.OnClickListener()
+        View.OnClickListener avatarClick = new View.OnClickListener()
         {
             @Override
             public void onClick(View v)
             {
-                theImagePickerLauncher.launch("image/*");
+                launchAvatarPicker();
             }
-        });
-
-        theAvatarImage.setOnClickListener(new View.OnClickListener()
-        {
-            @Override
-            public void onClick(View v)
-            {
-                theImagePickerLauncher.launch("image/*");
-            }
-        });
+        };
+        theAvatarButton.setOnClickListener(avatarClick);
+        theAvatarImage.setOnClickListener(avatarClick);
 
         theAvatarImage.setClipToOutline(true);
         theAvatarImage.setOutlineProvider(new android.view.ViewOutlineProvider()
@@ -438,6 +448,60 @@ public class StatusFragment extends Fragment
     /**
      * Upload a selected image to the server as the user's avatar.
      */
+    private void launchAvatarPicker()
+    {
+        // Create a camera intent
+        Intent cameraIntent = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+
+        // Create a temp file for the camera photo
+        File photoDir = new File(requireContext().getCacheDir(), "photos");
+        photoDir.mkdirs();
+        File photoFile = new File(photoDir, "avatar_" + System.currentTimeMillis() + ".jpg");
+        theCameraUri = androidx.core.content.FileProvider.getUriForFile(
+                requireContext(),
+                requireContext().getPackageName() + ".fileprovider",
+                photoFile
+        );
+        cameraIntent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT, theCameraUri);
+
+        // Create a gallery intent
+        Intent galleryIntent = new Intent(Intent.ACTION_GET_CONTENT);
+        galleryIntent.setType("image/*");
+
+        // Combine into chooser
+        Intent chooser = Intent.createChooser(galleryIntent, "Choose Avatar");
+        chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cameraIntent});
+        theAvatarLauncher.launch(chooser);
+    }
+
+    /**
+     * Resize a bitmap to fit within maxSize x maxSize, preserving aspect ratio.
+     */
+    private Bitmap resizeBitmap(Bitmap src, int maxSize)
+    {
+        int w = src.getWidth();
+        int h = src.getHeight();
+
+        if (w <= maxSize && h <= maxSize)
+        {
+            return src;
+        }
+
+        float scale;
+        if (w > h)
+        {
+            scale = (float) maxSize / w;
+        }
+        else
+        {
+            scale = (float) maxSize / h;
+        }
+
+        int newW = Math.round(w * scale);
+        int newH = Math.round(h * scale);
+        return Bitmap.createScaledBitmap(src, newW, newH, true);
+    }
+
     private void uploadAvatar(Uri imageUri)
     {
         theStatusText.setText("Uploading avatar...");
@@ -449,16 +513,24 @@ public class StatusFragment extends Fragment
             {
                 try
                 {
+                    // Decode, resize, and re-encode as JPEG
                     InputStream is = requireContext().getContentResolver().openInputStream(imageUri);
-                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    byte[] buf = new byte[4096];
-                    int n;
-                    while ((n = is.read(buf)) != -1)
-                    {
-                        baos.write(buf, 0, n);
-                    }
+                    Bitmap original = BitmapFactory.decodeStream(is);
                     is.close();
+
+                    if (original == null)
+                    {
+                        showToast("Could not read image");
+                        return;
+                    }
+
+                    Bitmap resized = resizeBitmap(original, 512);
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    resized.compress(Bitmap.CompressFormat.JPEG, 85, baos);
                     byte[] imageBytes = baos.toByteArray();
+
+                    Log.i(TAG, "Avatar resized to " + resized.getWidth() + "x"
+                            + resized.getHeight() + " (" + imageBytes.length + " bytes)");
 
                     String filename = "avatar.jpg";
                     Cursor cursor = requireContext().getContentResolver().query(
