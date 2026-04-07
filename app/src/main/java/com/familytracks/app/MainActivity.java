@@ -10,7 +10,7 @@ import androidx.fragment.app.Fragment;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
- * Main activity with bottom tab navigation: Map, Events, Status, Settings.
+ * Main activity with bottom tab navigation: Map, Events, Status, Settings, Debug.
  */
 public class MainActivity extends AppCompatActivity
 {
@@ -18,6 +18,7 @@ public class MainActivity extends AppCompatActivity
     private EventsFragment theEventsFragment;
     private StatusFragment theStatusFragment;
     private SettingsFragment theSettingsFragment;
+    private DebugFragment theDebugFragment;
     private Fragment theActiveFragment;
 
     @Override
@@ -30,8 +31,10 @@ public class MainActivity extends AppCompatActivity
         theEventsFragment = new EventsFragment();
         theStatusFragment = new StatusFragment();
         theSettingsFragment = new SettingsFragment();
+        theDebugFragment = new DebugFragment();
 
         getSupportFragmentManager().beginTransaction()
+                .add(R.id.fragmentContainer, theDebugFragment, "debug").hide(theDebugFragment)
                 .add(R.id.fragmentContainer, theSettingsFragment, "settings").hide(theSettingsFragment)
                 .add(R.id.fragmentContainer, theStatusFragment, "status").hide(theStatusFragment)
                 .add(R.id.fragmentContainer, theEventsFragment, "events").hide(theEventsFragment)
@@ -64,6 +67,10 @@ public class MainActivity extends AppCompatActivity
                 else if (id == R.id.nav_settings)
                 {
                     selected = theSettingsFragment;
+                }
+                else if (id == R.id.nav_debug)
+                {
+                    selected = theDebugFragment;
                 }
 
                 if (selected != null && selected != theActiveFragment)

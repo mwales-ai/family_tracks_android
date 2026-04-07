@@ -4,7 +4,8 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center_horizontal"
-    android:padding="32dp">
+    android:padding="32dp"
+    android:background="?android:attr/windowBackground">
 
     <ImageView
         android:id="@+id/avatarImage"

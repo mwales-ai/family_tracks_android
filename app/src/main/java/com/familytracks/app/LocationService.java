@@ -54,8 +54,9 @@ public class LocationService extends Service
     public static final String ACTION_START = "com.familytracks.app.START";
     public static final String ACTION_STOP = "com.familytracks.app.STOP";
 
-    // SharedPreferences key for tracking state (read by StatusFragment)
+    // SharedPreferences keys (read by StatusFragment and DebugFragment)
     public static final String PREFS_TRACKING = "family_tracks_tracking";
+    public static final String PREFS_DEBUG = "family_tracks_debug";
 
     private FusedLocationProviderClient theLocationClient;
     private LocationCallback theLocationCallback;
@@ -123,6 +124,7 @@ public class LocationService extends Service
             theSyncHandler.removeCallbacks(theSyncRunnable);
             stopForeground(STOP_FOREGROUND_REMOVE);
             writeTrackingState(false, false, null, 0);
+            debugLog("serviceStopped", System.currentTimeMillis());
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -131,6 +133,10 @@ public class LocationService extends Service
         startForeground(NOTIFICATION_ID, buildNotification());
         startLocationUpdates(false);
         writeTrackingState(true, false, null, 0);
+        debugLog("serviceStarted", System.currentTimeMillis());
+        debugLog("packetsSent", 0);
+        debugLog("locationUpdates", 0);
+        debugLog("errors", 0);
 
         theSyncHandler.post(theSyncRunnable);
 
@@ -187,6 +193,8 @@ public class LocationService extends Service
         catch (SecurityException e)
         {
             Log.e(TAG, "Missing location permission: " + e.getMessage());
+            debugLogString("lastError", "Permission: " + e.getMessage());
+            debugIncrement("errors");
         }
     }
 
@@ -202,10 +210,14 @@ public class LocationService extends Service
     {
         Log.d(TAG, "Location: " + loc.getLatitude() + ", " + loc.getLongitude());
 
+        debugIncrement("locationUpdates");
+        debugLog("lastLocationTime", System.currentTimeMillis());
+        debugLogString("lastLocationCoords",
+                String.format(Locale.US, "%.6f, %.6f", loc.getLatitude(), loc.getLongitude()));
+
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         boolean userWantsFine = prefs.getBoolean("fine_location", true);
 
-        // Check geofences for smart mode switching
         if (userWantsFine)
         {
             checkSmartMode(loc);
@@ -255,12 +267,16 @@ public class LocationService extends Service
                 public void run()
                 {
                     theSender.sendLocation(payload);
+                    debugIncrement("packetsSent");
+                    debugLog("lastPacketTime", System.currentTimeMillis());
                 }
             }).start();
         }
         catch (Exception e)
         {
             Log.e(TAG, "Error building payload: " + e.getMessage());
+            debugLogString("lastError", "Payload: " + e.getMessage());
+            debugIncrement("errors");
         }
     }
 
@@ -396,6 +412,7 @@ public class LocationService extends Service
                     if (authCode != 200)
                     {
                         Log.w(TAG, "Sync auth failed: HTTP " + authCode);
+                        debugLogString("lastSyncResult", "Auth failed: HTTP " + authCode);
                         authConn.disconnect();
                         return;
                     }
@@ -432,10 +449,14 @@ public class LocationService extends Service
 
                         JSONArray fences = new JSONArray(sb.toString());
                         Log.i(TAG, "Synced " + fences.length() + " geofences from server");
+                        debugLog("lastSyncTime", System.currentTimeMillis());
+                        debugLogString("lastSyncResult", "OK — " + fences.length() + " geofences");
+                        debugIncrement("syncCount");
                     }
                     else
                     {
                         Log.w(TAG, "Geofence fetch failed: HTTP " + fenceCode);
+                        debugLogString("lastSyncResult", "Failed: HTTP " + fenceCode);
                     }
 
                     fenceConn.disconnect();
@@ -443,9 +464,29 @@ public class LocationService extends Service
                 catch (Exception e)
                 {
                     Log.w(TAG, "Sync failed: " + e.getMessage());
+                    debugLogString("lastSyncResult", "Error: " + e.getMessage());
                 }
             }
         }).start();
+    }
+
+    private void debugLog(String key, long value)
+    {
+        SharedPreferences prefs = getSharedPreferences(PREFS_DEBUG, MODE_PRIVATE);
+        prefs.edit().putLong(key, value).apply();
+    }
+
+    private void debugLogString(String key, String value)
+    {
+        SharedPreferences prefs = getSharedPreferences(PREFS_DEBUG, MODE_PRIVATE);
+        prefs.edit().putString(key, value).apply();
+    }
+
+    private void debugIncrement(String key)
+    {
+        SharedPreferences prefs = getSharedPreferences(PREFS_DEBUG, MODE_PRIVATE);
+        long val = prefs.getLong(key, 0);
+        prefs.edit().putLong(key, val + 1).apply();
     }
 
     private void createNotificationChannel()
