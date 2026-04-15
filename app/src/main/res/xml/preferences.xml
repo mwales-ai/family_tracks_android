@@ -34,6 +34,16 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="Debug">
+
+        <SwitchPreferenceCompat
+            android:key="show_debug_tab"
+            android:title="Show Debug Tab"
+            android:summary="Show the debug diagnostics tab in the bottom navigation"
+            android:defaultValue="false" />
+
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="Connection">
 
         <Preference

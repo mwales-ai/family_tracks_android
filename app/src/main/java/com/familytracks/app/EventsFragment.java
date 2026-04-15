@@ -21,9 +21,11 @@ import java.net.CookieHandler;
 import java.net.CookieManager;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.TimeZone;
 
 /**
  * Shows geofence entry/exit events from the server.
@@ -82,7 +84,16 @@ public class EventsFragment extends Fragment
             {
                 try
                 {
-                    String urlStr = theConfig.getWebBaseUrl() + "/api/geofence-events?limit=50";
+                    // Only fetch events from the last 48 hours
+                    long cutoffMs = System.currentTimeMillis() - (48 * 60 * 60 * 1000);
+                    SimpleDateFormat isoFmt = new SimpleDateFormat(
+                            "yyyy-MM-dd'T'HH:mm:ss", Locale.US);
+                    isoFmt.setTimeZone(TimeZone.getTimeZone("UTC"));
+                    String since = isoFmt.format(new Date(cutoffMs));
+
+                    String urlStr = theConfig.getWebBaseUrl()
+                            + "/api/geofence-events?limit=50&since="
+                            + URLEncoder.encode(since, "UTF-8");
                     URL url = new URL(urlStr);
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 

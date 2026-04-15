@@ -202,6 +202,7 @@ public class StatusFragment extends Fragment
     {
         super.onResume();
         refreshStatus();
+        loadAvatarFromServer();
     }
 
     private void refreshStatus()
@@ -289,6 +290,66 @@ public class StatusFragment extends Fragment
             theTrackingModeText.setText("Tracking fine");
             theTrackingModeText.setTextColor(0xFF27ae60);
         }
+    }
+
+    private void loadAvatarFromServer()
+    {
+        if (!theConfig.load(requireContext()))
+        {
+            return;
+        }
+
+        new Thread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                try
+                {
+                    String baseUrl = theConfig.getWebBaseUrl();
+
+                    // Use cookies from WebView auth
+                    String cookies = android.webkit.CookieManager.getInstance()
+                            .getCookie(baseUrl);
+                    if (cookies == null)
+                    {
+                        return;
+                    }
+
+                    URL url = new URL(baseUrl + "/api/user/avatar");
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestProperty("Cookie", cookies);
+
+                    int code = conn.getResponseCode();
+                    if (code != 200)
+                    {
+                        conn.disconnect();
+                        return;
+                    }
+
+                    InputStream is = conn.getInputStream();
+                    Bitmap avatar = BitmapFactory.decodeStream(is);
+                    is.close();
+                    conn.disconnect();
+
+                    if (avatar != null && isAdded())
+                    {
+                        requireActivity().runOnUiThread(new Runnable()
+                        {
+                            @Override
+                            public void run()
+                            {
+                                theAvatarImage.setImageBitmap(avatar);
+                            }
+                        });
+                    }
+                }
+                catch (Exception e)
+                {
+                    Log.e(TAG, "Failed to load avatar: " + e.getMessage());
+                }
+            }
+        }).start();
     }
 
     private void startTracking()

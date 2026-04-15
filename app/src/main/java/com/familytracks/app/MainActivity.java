@@ -1,11 +1,14 @@
 package com.familytracks.app;
 
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.view.MenuItem;
+import android.view.Menu;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
+import androidx.preference.PreferenceManager;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
@@ -20,6 +23,7 @@ public class MainActivity extends AppCompatActivity
     private SettingsFragment theSettingsFragment;
     private DebugFragment theDebugFragment;
     private Fragment theActiveFragment;
+    private BottomNavigationView theNav;
 
     @Override
     protected void onCreate(Bundle savedInstanceState)
@@ -43,8 +47,10 @@ public class MainActivity extends AppCompatActivity
 
         theActiveFragment = theMapFragment;
 
-        BottomNavigationView nav = findViewById(R.id.bottomNav);
-        nav.setOnItemSelectedListener(new BottomNavigationView.OnItemSelectedListener()
+        theNav = findViewById(R.id.bottomNav);
+        updateDebugTabVisibility();
+
+        theNav.setOnItemSelectedListener(new BottomNavigationView.OnItemSelectedListener()
         {
             @Override
             public boolean onNavigationItemSelected(@NonNull MenuItem item)
@@ -85,5 +91,36 @@ public class MainActivity extends AppCompatActivity
                 return true;
             }
         });
+    }
+
+    @Override
+    protected void onResume()
+    {
+        super.onResume();
+        updateDebugTabVisibility();
+    }
+
+    private void updateDebugTabVisibility()
+    {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        boolean showDebug = prefs.getBoolean("show_debug_tab", false);
+        Menu menu = theNav.getMenu();
+        MenuItem debugItem = menu.findItem(R.id.nav_debug);
+
+        if (debugItem != null)
+        {
+            debugItem.setVisible(showDebug);
+        }
+
+        // If debug tab is hidden and it was the active fragment, switch to map
+        if (!showDebug && theActiveFragment == theDebugFragment)
+        {
+            getSupportFragmentManager().beginTransaction()
+                    .hide(theActiveFragment)
+                    .show(theMapFragment)
+                    .commit();
+            theActiveFragment = theMapFragment;
+            theNav.setSelectedItemId(R.id.nav_map);
+        }
     }
 }

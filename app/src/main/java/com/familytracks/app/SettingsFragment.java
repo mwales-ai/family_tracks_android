@@ -6,10 +6,14 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.view.View;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
+import androidx.recyclerview.widget.RecyclerView;
 
 /**
  * Settings fragment for the bottom nav tab.
@@ -17,6 +21,16 @@ import androidx.preference.PreferenceFragmentCompat;
  */
 public class SettingsFragment extends PreferenceFragmentCompat
 {
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState)
+    {
+        super.onViewCreated(view, savedInstanceState);
+        // Set opaque background so fragments underneath don't bleed through
+        android.util.TypedValue bg = new android.util.TypedValue();
+        view.getContext().getTheme().resolveAttribute(android.R.attr.windowBackground, bg, true);
+        view.setBackgroundResource(bg.resourceId);
+    }
+
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey)
     {
