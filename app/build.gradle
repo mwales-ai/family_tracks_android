@@ -2,6 +2,18 @@ plugins {
     id 'com.android.application'
 }
 
+def gitShortHash() {
+    try {
+        return ['git', 'rev-parse', '--short', 'HEAD'].execute().text.trim() ?: 'unknown'
+    } catch (Exception e) {
+        return 'unknown'
+    }
+}
+
+def buildDateUtc() {
+    return new Date().format("yyyy-MM-dd", TimeZone.getTimeZone("UTC"))
+}
+
 android {
     namespace 'com.familytracks.app'
     compileSdk 34
@@ -12,6 +24,13 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+
+        buildConfigField "String", "GIT_HASH", "\"${gitShortHash()}\""
+        buildConfigField "String", "BUILD_DATE", "\"${buildDateUtc()}\""
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {

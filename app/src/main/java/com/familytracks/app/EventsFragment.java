@@ -154,7 +154,12 @@ public class EventsFragment extends Fragment
                             lastDate = dateStr;
                         }
 
-                        String icon = evt.getString("eventType").equals("enter") ? "\u25B6" : "\u25C0";
+                        String type = evt.getString("eventType");
+                        String icon;
+                        if (type.equals("enter"))            icon = "\u25B6";  // \u25B6
+                        else if (type.equals("exit"))        icon = "\u25C0";  // \u25C0
+                        else if (type.equals("tracking_lost")) icon = "\u26A0"; // \u26A0
+                        else                                  icon = "\u2713"; // \u2713 (resumed)
                         display.append(timeStr).append("  ").append(icon).append("  ").append(msg).append("\n");
                     }
 

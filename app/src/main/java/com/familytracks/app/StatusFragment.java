@@ -460,9 +460,29 @@ public class StatusFragment extends Fragment
                     @Override
                     public void onClick(DialogInterface dialog, int which)
                     {
-                        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                        intent.setData(Uri.parse("package:" + requireContext().getPackageName()));
-                        startActivity(intent);
+                        // Try the per-app dialog first; if the OEM has disabled
+                        // it, fall back to the generic battery optimization
+                        // settings list so the user can find Family Tracks.
+                        try
+                        {
+                            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                            intent.setData(Uri.parse("package:" + requireContext().getPackageName()));
+                            startActivity(intent);
+                        }
+                        catch (Exception e)
+                        {
+                            try
+                            {
+                                Intent fallback = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                                startActivity(fallback);
+                            }
+                            catch (Exception ee)
+                            {
+                                Toast.makeText(requireContext(),
+                                        "Could not open battery settings: " + ee.getMessage(),
+                                        Toast.LENGTH_LONG).show();
+                            }
+                        }
                         launchService();
                     }
                 })

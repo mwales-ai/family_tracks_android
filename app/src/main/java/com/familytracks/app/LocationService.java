@@ -158,6 +158,18 @@ public class LocationService extends Service
         super.onDestroy();
     }
 
+    @Override
+    public void onTaskRemoved(Intent rootIntent)
+    {
+        // Some OEMs (Samsung, Xiaomi, etc.) kill foreground services when the
+        // user swipes the app off the recents list, even with START_STICKY.
+        // Re-arm ourselves so tracking survives the swipe-away.
+        Intent restart = new Intent(getApplicationContext(), LocationService.class);
+        restart.setAction(ACTION_START);
+        startService(restart);
+        super.onTaskRemoved(rootIntent);
+    }
+
     private void startLocationUpdates(boolean forceCoarse)
     {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);

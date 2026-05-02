@@ -83,6 +83,12 @@ public class SettingsFragment extends PreferenceFragmentCompat
             });
         }
 
+        Preference versionPref = findPreference("app_version");
+        if (versionPref != null)
+        {
+            versionPref.setSummary(BuildConfig.GIT_HASH + " · " + BuildConfig.BUILD_DATE);
+        }
+
         updateServerInfo();
     }
 
